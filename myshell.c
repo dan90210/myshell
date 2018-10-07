@@ -23,7 +23,7 @@ void sig_handler(int signal) {
 
   printf("Wait returned %d\n", result);
 }
-
+ 
 /*
  * The main shell function
  */ 
@@ -83,9 +83,13 @@ main() {
       break;
     case 0:
       break;
+    case 2:
+      printf("Redirecting output, and appending, to: %s\n", output_filename);
+   	  break;  
     case 1:
       printf("Redirecting output to: %s\n", output_filename);
       break;
+    
     }
 
     // Do the command
@@ -97,6 +101,7 @@ main() {
 
 /*
  * Check for ampersand as the last argument
+ 	TODO
  */
 int ampersand(char **args) {
   int i;
@@ -156,8 +161,11 @@ int do_command(char **args, int block,
     if(input)
       freopen(input_filename, "r", stdin);
 
-    if(output)
+    if(output == 1)
       freopen(output_filename, "w+", stdout);
+
+    if(output == 2)
+      freopen(output_filename, "a+", stdout);
 
     // Execute the command
     result = execvp(args[0], args);
@@ -210,8 +218,29 @@ int redirect_input(char **args, char **input_filename) {
 int redirect_output(char **args, char **output_filename) {
   int i;
   int j;
+  int k;
 
   for(i = 0; args[i] != NULL; i++) {
+
+  	// Look for the >
+    if(args[i][0] == '>' && args[i+1][0] == '>') {
+      free(args[i]);
+
+      // Get the filename 
+      if(args[i+2] != NULL) {
+		*output_filename = args[i+2];
+      } else {
+		return -1;
+      }
+
+      // Adjust the rest of the arguments in the array
+      for(j = i; args[j-1] != NULL; j++) {
+		args[j] = args[j+2];
+      }
+
+      return 2;
+    }
+  
 
     // Look for the >
     if(args[i][0] == '>') {
@@ -219,14 +248,14 @@ int redirect_output(char **args, char **output_filename) {
 
       // Get the filename 
       if(args[i+1] != NULL) {
-	*output_filename = args[i+1];
+		*output_filename = args[i+1];
       } else {
-	return -1;
+		return -1;
       }
 
       // Adjust the rest of the arguments in the array
       for(j = i; args[j-1] != NULL; j++) {
-	args[j] = args[j+2];
+		args[j] = args[j+2];
       }
 
       return 1;
