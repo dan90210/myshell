@@ -10,3 +10,18 @@ make
 To Run:
 
 ./run
+
+Working Shell Commands:
+
+1. The internal shell command "exit" which terminates the shell.
+2. A command with no arguments
+3. A command with arguments
+4. A command, with or without arguments, whose output is redirected to a file
+5. A command, with or without arguments, whose output is appended to a file
+6. A command, with or without arguments, whose input is redirected from a file
+
+
+Unimplemented Shell commands
+
+7. A command, with or without arguments, executed in the background using &
+8. A command, with or without arguments, whose output is piped to the input of another command
