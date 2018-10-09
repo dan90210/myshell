@@ -56,6 +56,8 @@ main() {
                         continue;
 
                 // Check for an ampersand
+                // if there is an ampersand, block = false
+                // if there is not an ampersand, block = true
                 block = (ampersand(args) == 0);
 
                 // Check for redirected input
@@ -174,9 +176,15 @@ int do_command(char **args, int block,
         }
 
         // Wait for the child process to complete, if necessary
+        // block is true if there is no '&'
         if(block) {
                 printf("Waiting for child, pid = %d\n", child_id);
                 result = waitpid(child_id, &status, 0);
+        } else {
+          // DOES NOT WORK
+          // This is where we need to handle background processes
+          printf("Waiting for child, pid = %d\n", child_id);
+          result = sigset(child_id, &status, 0);
         }
 }
 
