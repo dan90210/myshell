@@ -4,6 +4,7 @@
  * backgrounding processes with "&", input redirection
  * with "<" and output redirection with ">".
  * However, this is not complete.
+ * order of opps: paren, background, left to right
  */
 
 #include <stdio.h>
@@ -16,12 +17,18 @@ extern char **getaline();
 
 /*
  * Handle exit signals from child processes
+   https://www.thegeekstuff.com/2012/03/catch-signals-sample-c-code
+   ^^^ refer to this when trying to do signals
  */
 void sig_handler(int signal) {
         int status;
         int result = wait(&status);
 
         printf("Wait returned %d\n", result);
+
+        if (signal == SIGTTOU) {
+                printf("recived SIGTTOU signal\n");
+        }
 }
 
 /*
@@ -36,6 +43,8 @@ main() {
         int input;
         char *output_filename;
         char *input_filename;
+        int paren;
+        int semiC;
 
         // Set up the signal handler
         sigset(SIGCHLD, sig_handler);
@@ -58,7 +67,10 @@ main() {
                 // Check for an ampersand
                 // if there is an ampersand, block = false
                 // if there is not an ampersand, block = true
+                paren = (parentheses(args) == 1);
                 block = (ampersand(args) == 0);
+                semiC = (semiColon(args) == 1);
+
 
                 // Check for redirected input
                 input = redirect_input(args, &input_filename);
@@ -97,13 +109,12 @@ main() {
                 // Do the command
                 do_command(args, block,
                            input, input_filename,
-                           output, output_filename);
+                           output, output_filename, paren, semiC);
         }
 }
 
 /*
  * Check for ampersand as the last argument
-   TODO
  */
 int ampersand(char **args) {
         int i;
@@ -119,6 +130,52 @@ int ampersand(char **args) {
         }
 
         return 0;
+}
+
+/*
+ * Checks for a semicolon
+ */
+int semiColon(char **args) {
+        int i;
+        for (i=0; args[i] != NULL; i++) {
+                if (args[i][0] == ';') {
+                        free(args[i]);
+                        args[i] = NULL;
+                        return 1;
+                }
+        }
+        return 0;
+}
+
+int parentheses(char **args) {
+        int i, j;
+        int openingParen = 0;
+        int closingParen = 0;
+
+        for(i = 0; args[i] != NULL; i++) {
+                if (args[i][0] == '(') {
+                        openingParen = 1;
+                        for(j = i+1; args[j] != NULL; j++) {
+                                if (args[j][0] == ')') {
+                                        closingParen = 1;
+                                }
+                        }
+                }
+
+
+        }
+
+        if (openingParen == 1 && closingParen == 1) {
+                printf("our parentheses works\n");
+                return 1;
+        } else if (openingParen == 0 && closingParen == 0) {
+                return 0;
+        } else {
+                printf("missmatched parentheses\n");
+                return -1;
+        }
+
+
 }
 
 /*
@@ -138,11 +195,14 @@ int internal_command(char **args) {
  */
 int do_command(char **args, int block,
                int input, char *input_filename,
-               int output, char *output_filename) {
+               int output, char *output_filename,
+               int paren, int semiC) {
 
         int result;
         pid_t child_id;
         int status;
+        int i;
+        int index = 0;
 
         // Fork the child process
         child_id = fork();
@@ -157,35 +217,44 @@ int do_command(char **args, int block,
                 return;
         }
 
-        if(child_id == 0) {
+          if(child_id == 0) {
 
-                // Set up redirection in the child process
-                if(input)
-                        freopen(input_filename, "r", stdin);
+                        // Set up redirection in the child process
+                        if(input)
+                                freopen(input_filename, "r", stdin);
 
-                if(output == 1)
-                        freopen(output_filename, "w+", stdout);
+                        if(output == 1)
+                                freopen(output_filename, "w+", stdout);
 
-                if(output == 2)
-                        freopen(output_filename, "a+", stdout);
+                        if(output == 2)
+                                freopen(output_filename, "a+", stdout);
 
-                // Execute the command
-                result = execvp(args[0], args);
+                        // Execute the command
+                        result = execvp(args[index], args);
+                        exit(-1);
+                }
 
-                exit(-1);
-        }
+                // Wait for the child process to complete, if necessary
+                // block is true if there is no '&'
+                if(block) {
+                        printf("Waiting for child, pid = %d\n", child_id);
+                        result = waitpid(child_id, &status, 0);
+                } else {
+                        // DOES NOT WORK
+                        // This is where we need to handle background processes
+                        printf("backgrounding child, pid = %d\n", child_id);
+                        result = sigset(child_id, &status, 0);
+                }
 
-        // Wait for the child process to complete, if necessary
-        // block is true if there is no '&'
-        if(block) {
-                printf("Waiting for child, pid = %d\n", child_id);
-                result = waitpid(child_id, &status, 0);
-        } else {
-          // DOES NOT WORK
-          // This is where we need to handle background processes
-          printf("Waiting for child, pid = %d\n", child_id);
-          result = sigset(child_id, &status, 0);
-        }
+                // if(semiC) {
+                //         // wrap all of this in while(semiC) so we can check for more ;
+                //         for(i = 0; args[i] != NULL; i++) {
+                //                 // find the index of the semiColon
+                //                 if (args[i][0] == ';') {
+                //                         index = args[i + 1];
+                //                 }
+                //         }
+                // }
 }
 
 /*
@@ -230,9 +299,10 @@ int redirect_output(char **args, char **output_filename) {
 
         for(i = 0; args[i] != NULL; i++) {
 
-                // Look for the >
+                // Look for the >>
                 if(args[i][0] == '>' && args[i+1][0] == '>') {
                         free(args[i]);
+                        free(args[i+1]);
 
                         // Get the filename
                         if(args[i+2] != NULL) {
