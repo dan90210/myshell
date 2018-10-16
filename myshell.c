@@ -12,6 +12,8 @@
 #include <sys/types.h>
 #include <errno.h>
 #include <signal.h>
+#include <sys/wait.h>
+#include <stdlib.h>
 
 extern char **getaline();
 
@@ -24,7 +26,7 @@ void sig_handler(int signal) {
         int status;
         int result = wait(&status);
 
-        printf("Wait returned %d\n", result);
+        // printf("Wait returned %d\n", result);
 
         if (signal == SIGTTOU) {
                 printf("recived SIGTTOU signal\n");
@@ -45,6 +47,7 @@ main() {
         char *input_filename;
         int paren;
         int semiC;
+        int _pipe;
 
         // Set up the signal handler
         sigset(SIGCHLD, sig_handler);
@@ -70,6 +73,7 @@ main() {
                 paren = (parentheses(args) == 1);
                 block = (ampersand(args) == 0);
                 semiC = (semiColon(args) == 1);
+                //_pipe = (findPipe(args) == 1);
 
 
                 // Check for redirected input
@@ -147,6 +151,21 @@ int semiColon(char **args) {
         return 0;
 }
 
+/*
+ * Checks for a pipe
+ */
+int findPipe(char **args) {
+        int i;
+        for (i=0; args[i] != NULL; i++) {
+                if (args[i][0] == '|') {
+                        free(args[i]);
+                        args[i] = NULL;
+                        return 1;
+                }
+        }
+        return 0;
+}
+
 int parentheses(char **args) {
         int i, j;
         int openingParen = 0;
@@ -203,9 +222,12 @@ int do_command(char **args, int block,
         int status;
         int i;
         int index = 0;
+        int fd1[2];
 
         // Fork the child process
         child_id = fork();
+
+        int _pipe = findPipe(args);
 
         // Check for errors in fork()
         switch(child_id) {
@@ -217,44 +239,62 @@ int do_command(char **args, int block,
                 return;
         }
 
-          if(child_id == 0) {
+        if(child_id == 0) {
 
-                        // Set up redirection in the child process
-                        if(input)
-                                freopen(input_filename, "r", stdin);
+          if (_pipe) {
+            close(fd1[1]);
+            char pipeInput[255];
+            read(fd1[0], pipeInput, 255);
+          }
 
-                        if(output == 1)
-                                freopen(output_filename, "w+", stdout);
+          // Set up redirection in the child process
+          if (input)
+                  freopen(input_filename, "r", stdin);
 
-                        if(output == 2)
-                                freopen(output_filename, "a+", stdout);
+          if (output == 1)
+                  freopen(output_filename, "w+", stdout);
 
-                        // Execute the command
-                        result = execvp(args[index], args);
-                        exit(-1);
-                }
+          if (output == 2)
+                  freopen(output_filename, "a+", stdout);
 
-                // Wait for the child process to complete, if necessary
-                // block is true if there is no '&'
-                if(block) {
-                        printf("Waiting for child, pid = %d\n", child_id);
-                        result = waitpid(child_id, &status, 0);
-                } else {
-                        // DOES NOT WORK
-                        // This is where we need to handle background processes
-                        printf("backgrounding child, pid = %d\n", child_id);
-                        result = sigset(child_id, &status, 0);
-                }
+          // Execute the command
+          execvp(args[index], args);
+          exit(-1);
+        }
 
-                // if(semiC) {
-                //         // wrap all of this in while(semiC) so we can check for more ;
-                //         for(i = 0; args[i] != NULL; i++) {
-                //                 // find the index of the semiColon
-                //                 if (args[i][0] == ';') {
-                //                         index = args[i + 1];
-                //                 }
-                //         }
-                // }
+        // Wait for the child process to complete, if necessary
+        // block is true if there is no '&'
+        if (block) {
+
+          if (_pipe) {
+            close(fd1[0]);
+            char pipeOutput[255];
+            write(fd1[1], pipeOutput, strlen(pipeOutput)+1);
+          }
+
+          // printf("Waiting for child, pid = %d\n", child_id);
+          result = waitpid(child_id, &status, 0);
+        } else {
+          // DOES NOT WORK
+          // This is where we need to handle background processes
+          printf("backgrounding child, pid = %d\n", child_id);
+          result = sigset(child_id, &status, 0);
+        }
+
+        // if (semiColon(args))
+        // update index
+        // shift the contents of arguments
+        // ^^^ refer to second for loop in redi
+
+        // if(semiC) {
+        //         // wrap all of this in while(semiC) so we can check for more ;
+        //         for(i = 0; args[i] != NULL; i++) {
+        //                 // find the index of the semiColon
+        //                 if (args[i][0] == ';') {
+        //                         index = args[i + 1];
+        //                 }
+        //         }
+        // }
 }
 
 /*
