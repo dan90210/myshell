@@ -17,6 +17,20 @@
 
 extern char **getaline();
 
+void getPrePipeArgs(char **args, char **prePipeArgs);
+void getPostPipeArgs(char **args, char **postPipeArgs);
+int do_command(char **args, int block,
+               int input, char *input_filename,
+               int output, char *output_filename,
+			   char **pipeInput, int inputPipeBool);
+int ampersand(char **args);
+int semiColon(char **args);
+int getPipe(char **args);
+int parentheses(char **args);
+int internal_command(char **args);
+int redirect_input(char **args, char **input_filename);
+int redirect_output(char **args, char **output_filename);
+
 /*
  * Handle exit signals from child processes
    https://www.thegeekstuff.com/2012/03/catch-signals-sample-c-code
@@ -73,7 +87,7 @@ main() {
 		// paren = (parentheses(args) == 1);
 		block = (ampersand(args) == 0);
 		// semiC = (semiColon(args) == 1);
-		//_pipe = (findPipe(args) == 1);
+		//_pipe = (getPipe(args) == 1);
 
 
 		// Check for redirected input
@@ -113,7 +127,8 @@ main() {
 		// Do the command
 		do_command(args, block,
 				   input, input_filename,
-				   output, output_filename);
+				   output, output_filename,
+				   NULL, 0);
 	}
 }
 
@@ -123,7 +138,7 @@ main() {
 int do_command(char **args, int block,
                int input, char *input_filename,
                int output, char *output_filename,
-               int paren, int semiC) {
+			   char **pipeInput, int inputPipeBool) {
 
 	int result;
 	pid_t child_id;
@@ -131,22 +146,24 @@ int do_command(char **args, int block,
 	int i;
 	int index = 0;
 	int fd1[2];
+	char* pipeOutput[1000];
 	
-	char* prePipeArgs, postPipeArgs;
+	char **prePipeArgs; 
+	char **postPipeArgs;
 	
 	// We have pipe
 	int pipeInArgs = getPipe(args);
 	
 	// Get pipe info
 	if (pipeInArgs) {
-		prePipeArgs = getPrePipeArgs(args);
-		postPipeArgs = getPostPipeArgs(args);
+		getPrePipeArgs(args, prePipeArgs);
+		//printf("%s\n", prePipeArgs[0]);
+		getPostPipeArgs(args, postPipeArgs);
+		//printf("%s\n", postPipeArgs[0]);
 	}
 
 	// Fork the child process
 	child_id = fork();
-
-	int _pipe = findPipe(args);
 
 	// Check for errors in fork()
 	switch(child_id) {
@@ -161,9 +178,9 @@ int do_command(char **args, int block,
 	if(child_id == 0) {
 		
 		if (pipeInArgs) {
-			// dup2(STDOUT, fd1)
+			// dup2(stdout, fd1)
 			execvp(prePipeArgs[0], prePipeArgs);
-			write(fd1[1], STDOUT, strlen(STDOUT)+1);
+			write(fd1[1], stdout, strlen(stdout)+1);
 			close(fd1[1]);
 		} else {
 
@@ -185,7 +202,10 @@ int do_command(char **args, int block,
 		// wait for child to execute
 		if (pipeInArgs) {
 			read(fd1[0], pipeOutput, 1000);
-			do_command(postPipeArgs, pipeOutput, 1);
+			do_command(postPipeArgs, block, 
+						input, input_filename,
+						output, output_filename,
+						pipeOutput, 1);
 		} else {
 			
 		}
@@ -201,6 +221,27 @@ int do_command(char **args, int block,
 	  // This is where we need to handle background processes
 	  printf("backgrounding child, pid = %d\n", child_id);
 	  result = sigset(child_id, &status, 0);
+	}
+}
+
+void getPrePipeArgs(char **args, char **prePipeArgs) {
+	int i = 0;
+	while(!strcmp(args[i], "|")) {
+		memset(prePipeArgs[i], '\0', sizeof(prePipeArgs[i]));
+		strcpy(prePipeArgs[i], args[i]);
+		i = i+1;
+	}
+}
+
+void getPostPipeArgs(char **args, char **postPipeArgs) {
+	int i;
+	while(!strcmp(args[i], "|")) {
+		i = i+1;
+	}
+	while (args[i] != NULL) {
+		memset(postPipeArgs[i], '\0', sizeof(postPipeArgs[i]));
+		strcpy(postPipeArgs[i], args[i]);
+		i = i+1;
 	}
 }
 
@@ -241,7 +282,7 @@ int semiColon(char **args) {
 /*
  * Checks for a pipe
  */
-int findPipe(char **args) {
+int getPipe(char **args) {
 	int i;
 	for (i=0; args[i] != NULL; i++) {
 		if (args[i][0] == '|') {
@@ -278,8 +319,6 @@ int parentheses(char **args) {
 		printf("missmatched parentheses\n");
 		return -1;
 	}
-
-
 }
 
 /*
