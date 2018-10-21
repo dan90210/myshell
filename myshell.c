@@ -14,6 +14,7 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <stdlib.h>
+#define FILENAME "files"
 
 extern char **getaline();
 
@@ -21,8 +22,8 @@ void getPrePipeArgs(char **args, char **prePipeArgs);
 void getPostPipeArgs(char **args, char **postPipeArgs);
 int do_command(char **args, int block,
                int input, char *input_filename,
-               int output, char *output_filename,
-			   char **pipeInput, int inputPipeBool);
+               int output, char *output_filename, 
+			   int inputPipeBool);
 int ampersand(char **args);
 int semiColon(char **args);
 int getPipe(char **args);
@@ -43,7 +44,7 @@ void sig_handler(int signal) {
         // printf("Wait returned %d\n", result);
 
         if (signal == SIGTTOU) {
-                printf("recived SIGTTOU signal\n");
+                // printf("recived SIGTTOU signal\n");
         }
 }
 
@@ -95,13 +96,13 @@ main() {
 
 		switch(input) {
 		case -1:
-			printf("Syntax error!\n");
+			//printf("Syntax error!\n");
 			continue;
 			break;
 		case 0:
 			break;
 		case 1:
-			printf("Redirecting input from: %s\n", input_filename);
+			//printf("Redirecting input from: %s\n", input_filename);
 			break;
 		}
 
@@ -110,16 +111,16 @@ main() {
 
 		switch(output) {
 		case -1:
-			printf("Syntax error!\n");
+			//printf("Syntax error!\n");
 			continue;
 			break;
 		case 0:
 			break;
 		case 2:
-			printf("Redirecting output, and appending, to: %s\n", output_filename);
+			//printf("Redirecting output, and appending, to: %s\n", output_filename);
 			break;
 		case 1:
-			printf("Redirecting output to: %s\n", output_filename);
+			//printf("Redirecting output to: %s\n", output_filename);
 			break;
 
 		}
@@ -127,8 +128,7 @@ main() {
 		// Do the command
 		do_command(args, block,
 				   input, input_filename,
-				   output, output_filename,
-				   NULL, 0);
+				   output, output_filename, 0);
 	}
 }
 
@@ -137,8 +137,7 @@ main() {
  */
 int do_command(char **args, int block,
                int input, char *input_filename,
-               int output, char *output_filename,
-			   char **pipeInput, int inputPipeBool) {
+               int output, char *output_filename, int inputPipeBool) {
 
 	int result;
 	pid_t child_id;
@@ -146,7 +145,6 @@ int do_command(char **args, int block,
 	int i;
 	int index = 0;
 	int fd1[2];
-	char* pipeOutput[1000];
 	
 	char **prePipeArgs; 
 	char **postPipeArgs;
@@ -168,71 +166,101 @@ int do_command(char **args, int block,
 	// Check for errors in fork()
 	switch(child_id) {
 	case EAGAIN:
-			perror("Error EAGAIN: ");
+			//perror("Error EAGAIN: ");
 			return;
 	case ENOMEM:
-			perror("Error ENOMEM: ");
+			//perror("Error ENOMEM: ");
 			return;
 	}
 
+	// Runs first
 	if(child_id == 0) {
 		
+		// This call of do_command has input from a pipe
+		if (inputPipeBool) {
+			dup2(FILENAME, stdin);
+		}
+		
 		if (pipeInArgs) {
-			// dup2(stdout, fd1)
-			execvp(prePipeArgs[0], prePipeArgs);
-			write(fd1[1], stdout, strlen(stdout)+1);
+			
+			// Get size of file
+			fseek(FILENAME, 0, SEEK_END);
+			int size = ftell(FILENAME);
+			
+			write(fd1[1], FILENAME, size);
 			close(fd1[1]);
+			exit(-1);
 		} else {
 
 			// Set up redirection in the child process
-			if (input)
+			if (input) {
 				freopen(input_filename, "r", stdin);
-
-			if (output == 1)
+			}
+			if (output == 1) {
 				freopen(output_filename, "w+", stdout);
-
-			if (output == 2)
+			}
+			if (output == 2) {
 				freopen(output_filename, "a+", stdout);
-
+			}
 			// Execute the command
 			execvp(args[index], args);
+			fclose (stdout);
+			fclose(stdin);
 			exit(-1);
 		}
+	// Runs second
 	} else {
-		// wait for child to execute
+		// Wait for input from child
 		if (pipeInArgs) {
-			read(fd1[0], pipeOutput, 1000);
+			
+			// Get size of file
+			// fseek(FILENAME, 0, SEEK_END);
+			// int size = ftell(FILENAME);
+			
+			read(fd1[0], FILENAME, 1000);
 			do_command(postPipeArgs, block, 
 						input, input_filename,
-						output, output_filename,
-						pipeOutput, 1);
+						output, output_filename, 1);
 		} else {
-			
+			// Wait for the child process to complete, if necessary
+			// block is true if there is no '&'
+			if (block) {
+			  // printf("Waiting for child, pid = %d\n", child_id);
+			  result = waitpid(child_id, &status, 0);
+			} else {
+			  // DOES NOT WORK
+			  // This is where we need to handle background processes
+			  // printf("backgrounding child, pid = %d\n", child_id);
+			  result = sigset(child_id, &status, 0);
+			}
 		}
 	}
-
-	// Wait for the child process to complete, if necessary
-	// block is true if there is no '&'
-	if (block) {
-	  // printf("Waiting for child, pid = %d\n", child_id);
-	  result = waitpid(child_id, &status, 0);
-	} else {
-	  // DOES NOT WORK
-	  // This is where we need to handle background processes
-	  printf("backgrounding child, pid = %d\n", child_id);
-	  result = sigset(child_id, &status, 0);
-	}
 }
 
+/**
+ * Check here for errors
+ */
 void getPrePipeArgs(char **args, char **prePipeArgs) {
 	int i = 0;
+	
 	while(!strcmp(args[i], "|")) {
-		memset(prePipeArgs[i], '\0', sizeof(prePipeArgs[i]));
-		strcpy(prePipeArgs[i], args[i]);
 		i = i+1;
 	}
+	memcpy(prePipeArgs, args, (i)*sizeof(char*));
+	
+	char *pointerToArray = &prePipeArgs[0];
+	
+	int j;
+	for (j = 0; pointerToArray[j] != NULL; j++) {
+		printf("%c", pointerToArray[j]);
+	}
+	printf("\n");
+	fflush(stdout);
 }
 
+/**
+ * Check here for errors
+ */
 void getPostPipeArgs(char **args, char **postPipeArgs) {
 	int i;
 	while(!strcmp(args[i], "|")) {
@@ -311,12 +339,12 @@ int parentheses(char **args) {
 	}
 
 	if (openingParen == 1 && closingParen == 1) {
-		printf("our parentheses works\n");
+		//printf("our parentheses works\n");
 		return 1;
 	} else if (openingParen == 0 && closingParen == 0) {
 		return 0;
 	} else {
-		printf("missmatched parentheses\n");
+		//printf("missmatched parentheses\n");
 		return -1;
 	}
 }
