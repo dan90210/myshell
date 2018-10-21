@@ -41,11 +41,7 @@ void sig_handler(int signal) {
         int status;
         int result = wait(&status);
 
-        // printf("Wait returned %d\n", result);
-
-        if (signal == SIGTTOU) {
-                // printf("recived SIGTTOU signal\n");
-        }
+        if (signal == SIGTTOU) {}
 }
 
 /*
@@ -85,24 +81,21 @@ main() {
 		// Check for an ampersand
 		// if there is an ampersand, block = false
 		// if there is not an ampersand, block = true
-		// paren = (parentheses(args) == 1);
 		block = (ampersand(args) == 0);
-		// semiC = (semiColon(args) == 1);
-		//_pipe = (getPipe(args) == 1);
-
+		
+		// Check for parentheses		
+		paren = (parentheses(args) == 1);
 
 		// Check for redirected input
 		input = redirect_input(args, &input_filename);
 
 		switch(input) {
 		case -1:
-			//printf("Syntax error!\n");
 			continue;
 			break;
 		case 0:
 			break;
 		case 1:
-			//printf("Redirecting input from: %s\n", input_filename);
 			break;
 		}
 
@@ -111,18 +104,14 @@ main() {
 
 		switch(output) {
 		case -1:
-			//printf("Syntax error!\n");
 			continue;
 			break;
 		case 0:
 			break;
 		case 2:
-			//printf("Redirecting output, and appending, to: %s\n", output_filename);
 			break;
 		case 1:
-			//printf("Redirecting output to: %s\n", output_filename);
 			break;
-
 		}
 
 		// Do the command
@@ -143,7 +132,6 @@ int do_command(char **args, int block,
 	pid_t child_id;
 	int status;
 	int i;
-	int index = 0;
 	int fd1[2];
 	
 	char **prePipeArgs; 
@@ -155,9 +143,7 @@ int do_command(char **args, int block,
 	// Get pipe info
 	if (pipeInArgs) {
 		getPrePipeArgs(args, prePipeArgs);
-		//printf("%s\n", prePipeArgs[0]);
 		getPostPipeArgs(args, postPipeArgs);
-		//printf("%s\n", postPipeArgs[0]);
 	}
 
 	// Fork the child process
@@ -166,27 +152,34 @@ int do_command(char **args, int block,
 	// Check for errors in fork()
 	switch(child_id) {
 	case EAGAIN:
-			//perror("Error EAGAIN: ");
 			return;
 	case ENOMEM:
-			//perror("Error ENOMEM: ");
 			return;
 	}
 
 	// Runs first
 	if(child_id == 0) {
 		
-		// This call of do_command has input from a pipe
+		// This call of do_command has input from a previous pipe
 		if (inputPipeBool) {
+			// Take input from the file instead of stdin
 			dup2(FILENAME, stdin);
 		}
 		
+		// We have to pipe to another process
 		if (pipeInArgs) {
 			
-			// Get size of file
-			fseek(FILENAME, 0, SEEK_END);
-			int size = ftell(FILENAME);
+			FILE *fp = fopen(FILENAME, "r");
+			int size;
 			
+			if (fp) {
+				// Get size of file
+				fseek(fp, 0, SEEK_END);
+				int size = ftell(fp);
+				close(fp);
+			}
+			// WE NEVER EXECUTE
+			printf("Executing command %s\n", args[0]);
 			write(fd1[1], FILENAME, size);
 			close(fd1[1]);
 			exit(-1);
@@ -202,8 +195,12 @@ int do_command(char **args, int block,
 			if (output == 2) {
 				freopen(output_filename, "a+", stdout);
 			}
+			
+			printf("Executing command %s\n", args[0]);
+			fflush(stdout);
+			
 			// Execute the command
-			execvp(args[index], args);
+			execvp(args[0], args);
 			fclose (stdout);
 			fclose(stdin);
 			exit(-1);
@@ -213,11 +210,17 @@ int do_command(char **args, int block,
 		// Wait for input from child
 		if (pipeInArgs) {
 			
-			// Get size of file
-			// fseek(FILENAME, 0, SEEK_END);
-			// int size = ftell(FILENAME);
+			FILE *fp = fopen(FILENAME, "r");
+			int size;
 			
-			read(fd1[0], FILENAME, 1000);
+			if (fp) {
+				// Get size of file
+				fseek(fp, 0, SEEK_END);
+				size = ftell(fp);	
+				fclose(fp);
+			}
+			
+			read(fd1[0], FILENAME, size);
 			do_command(postPipeArgs, block, 
 						input, input_filename,
 						output, output_filename, 1);
@@ -225,7 +228,6 @@ int do_command(char **args, int block,
 			// Wait for the child process to complete, if necessary
 			// block is true if there is no '&'
 			if (block) {
-			  // printf("Waiting for child, pid = %d\n", child_id);
 			  result = waitpid(child_id, &status, 0);
 			} else {
 			  // DOES NOT WORK
@@ -247,30 +249,22 @@ void getPrePipeArgs(char **args, char **prePipeArgs) {
 		i = i+1;
 	}
 	memcpy(prePipeArgs, args, (i)*sizeof(char*));
-	
-	char *pointerToArray = &prePipeArgs[0];
-	
-	int j;
-	for (j = 0; pointerToArray[j] != NULL; j++) {
-		printf("%c", pointerToArray[j]);
-	}
-	printf("\n");
-	fflush(stdout);
 }
 
 /**
  * Check here for errors
  */
 void getPostPipeArgs(char **args, char **postPipeArgs) {
-	int i;
+	int i, j;
 	while(!strcmp(args[i], "|")) {
 		i = i+1;
 	}
-	while (args[i] != NULL) {
-		memset(postPipeArgs[i], '\0', sizeof(postPipeArgs[i]));
-		strcpy(postPipeArgs[i], args[i]);
-		i = i+1;
+	j = i;
+	while (args[j] != NULL) {
+		j = j+1;
 	}
+	memcpy(postPipeArgs, args + i+2, (j-i)*sizeof(char*)); 
+	
 }
 
 /*
@@ -293,35 +287,25 @@ int ampersand(char **args) {
 }
 
 /*
- * Checks for a semicolon
- */
-int semiColon(char **args) {
-	int i;
-	for (i=0; args[i] != NULL; i++) {
-		if (args[i][0] == ';') {
-			free(args[i]);
-			args[i] = NULL;
-			return 1;
-		}
-	}
-	return 0;
-}
-
-/*
  * Checks for a pipe
  */
 int getPipe(char **args) {
-	int i;
-	for (i=0; args[i] != NULL; i++) {
-		if (args[i][0] == '|') {
-			free(args[i]);
-			args[i] = NULL;
+	int i = 0;
+	while (args[i] != NULL) {
+		if (args[i][0] == '|'){
 			return 1;
 		}
+		i = i+1;
 	}
 	return 0;
 }
 
+/**
+ * Checks for a valid set of parentheses
+ * -1 - Invalid set of parentheses
+ * 0 - No parentheses
+ * 1 - Valid set of parentheses
+ */
 int parentheses(char **args) {
 	int i, j;
 	int openingParen = 0;
@@ -337,14 +321,12 @@ int parentheses(char **args) {
 			}
 		}
 	}
-
-	if (openingParen == 1 && closingParen == 1) {
-		//printf("our parentheses works\n");
-		return 1;
-	} else if (openingParen == 0 && closingParen == 0) {
-		return 0;
-	} else {
-		//printf("missmatched parentheses\n");
+	// If we have a matching pair
+	if (openingParen == closingParen) {
+		return openingParen;
+	}
+	// Invlid pair
+	else {
 		return -1;
 	}
 }
