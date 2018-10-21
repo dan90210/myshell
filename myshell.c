@@ -128,14 +128,13 @@ int do_command(char **args, int block,
                int input, char *input_filename,
                int output, char *output_filename, int inputPipeBool) {
 
-	int result;
 	pid_t child_id;
 	int status;
-	int i;
 	int fd1[2];
 	
 	char **prePipeArgs; 
 	char **postPipeArgs;
+	
 	
 	// We have pipe
 	int pipeInArgs = getPipe(args);
@@ -169,6 +168,7 @@ int do_command(char **args, int block,
 		// We have to pipe to another process
 		if (pipeInArgs) {
 			
+			// We have to open the file and read to the end to get the size
 			FILE *fp = fopen(FILENAME, "r");
 			int size;
 			
@@ -178,13 +178,27 @@ int do_command(char **args, int block,
 				int size = ftell(fp);
 				close(fp);
 			}
-			// WE NEVER EXECUTE
-			printf("Executing command %s\n", args[0]);
-			write(fd1[1], FILENAME, size);
-			close(fd1[1]);
-			exit(-1);
+			
+			// Here we make another thread
+			// Child - Execute our process
+			// Parent - Wait for process to finish and return 0 so parent process can continue
+			pid_t exec_id;
+			int exec_status;
+			
+			exec_id = fork();
+			if (exec_id == 0) {
+				execvp(prePipeArgs[0], prePipeArgs);
+				exit(0);
+			}
+			else {
+				waitpid(exec_id, &exec_status, 0);
+				write(fd1[1], FILENAME, size);
+				close(fd1[1]);
+				exit(0);	
+			}
+			
 		} else {
-
+			
 			// Set up redirection in the child process
 			if (input) {
 				freopen(input_filename, "r", stdin);
@@ -196,20 +210,18 @@ int do_command(char **args, int block,
 				freopen(output_filename, "a+", stdout);
 			}
 			
-			printf("Executing command %s\n", args[0]);
-			fflush(stdout);
-			
+			// Execute the command
 			// Execute the command
 			execvp(args[0], args);
 			fclose (stdout);
 			fclose(stdin);
-			exit(-1);
+			exit(0);
 		}
 	// Runs second
 	} else {
 		// Wait for input from child
 		if (pipeInArgs) {
-			
+			waitpid(child_id, &status, 0);
 			FILE *fp = fopen(FILENAME, "r");
 			int size;
 			
@@ -227,13 +239,14 @@ int do_command(char **args, int block,
 		} else {
 			// Wait for the child process to complete, if necessary
 			// block is true if there is no '&'
+			
 			if (block) {
-			  result = waitpid(child_id, &status, 0);
+				waitpid(child_id, &status, 0);
 			} else {
-			  // DOES NOT WORK
-			  // This is where we need to handle background processes
-			  // printf("backgrounding child, pid = %d\n", child_id);
-			  result = sigset(child_id, &status, 0);
+				// DOES NOT WORK
+				// This is where we need to handle background processes
+				// printf("backgrounding child, pid = %d\n", child_id);
+				sigset(child_id, &status, 0);
 			}
 		}
 	}
@@ -264,7 +277,6 @@ void getPostPipeArgs(char **args, char **postPipeArgs) {
 		j = j+1;
 	}
 	memcpy(postPipeArgs, args + i+2, (j-i)*sizeof(char*)); 
-	
 }
 
 /*
@@ -339,7 +351,6 @@ int internal_command(char **args) {
 	if(strcmp(args[0], "exit") == 0) {
 		exit(0);
 	}
-
 	return 0;
 }
 
