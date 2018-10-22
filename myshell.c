@@ -14,6 +14,7 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define FILENAME "files"
 
@@ -70,6 +71,12 @@ main() {
 		// Print out the prompt and get the input
 		printf("->");
 		args = getaline();
+
+    // int j = 0;
+    // while (args[j] != NULL) {
+    //   printf("%s\n", args[j]);
+    //   j++;
+    // }
 
 		// No input, continue
 		if(args[0] == NULL)
@@ -133,15 +140,14 @@ int do_command(char **args, int block,
 	int status;
 	int fd1[2];
 
-  char *prePipeArgs;
-  char *postPipeArgs;
-
-  // og pre and post args
-  // char **prePipeArgs;
-  // char **postPipeArgs;
+  char *prePipeArgs = malloc(100 *sizeof(char*));
+  char *postPipeArgs = malloc(100 *sizeof(char*));
 
   int i = 0;
-  printf("args ====== %s\n", &args);
+  while (args[i] != NULL){
+    printf("args ====== %s\n", args[i]);
+    i++;
+  }
 
 
 
@@ -157,18 +163,22 @@ int do_command(char **args, int block,
 
     char *separator = "|";
     prePipeArgs = strtok(*args, separator);
-    printf("%s\n", prePipeArgs);
-    postPipeArgs = strtok(NULL, "");
-    printf("%s\n", postPipeArgs);
+    int j = 2;
 
-    // // og method calls
-    //
-    // getPrePipeArgs(args, prePipeArgs);
-    // getPostPipeArgs(args, postPipeArgs);
+    while (args[j] != NULL){
+      postPipeArgs = strcat(postPipeArgs, args[j]);
+      postPipeArgs = strcat(postPipeArgs, " ");
+      j++;
+    }
 
 
 
 	}
+
+  printf("first argument: %s\n", prePipeArgs);
+  printf("other arguments: %s\n", postPipeArgs);
+
+
 
 	// Fork the child process
 	child_id = fork();
