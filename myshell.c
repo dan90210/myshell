@@ -143,15 +143,6 @@ int do_command(char **args, int block,
   char *prePipeArgs = malloc(100 *sizeof(char*));
   char *postPipeArgs = malloc(100 *sizeof(char*));
 
-  int i = 0;
-  while (args[i] != NULL){
-    printf("args ====== %s\n", args[i]);
-    i++;
-  }
-
-
-
-
 	// We have pipe
 	int pipeInArgs = getPipe(args);
 
@@ -182,6 +173,7 @@ int do_command(char **args, int block,
 
 	// Fork the child process
 	child_id = fork();
+  printf("forking\n");  // prints twice, but above print statements happen once
 
 	// Check for errors in fork()
 	switch(child_id) {
@@ -194,10 +186,13 @@ int do_command(char **args, int block,
 	// Runs first
 	if(child_id == 0) {
 
+    printf("my child id is 0\n");
+
 		// This call of do_command has input from a previous pipe
 		if (inputPipeBool) {
 			// Take input from the file instead of stdin
 			dup2(FILENAME, stdin);
+      printf("duuped\n");
 		}
 
 		// We have to pipe to another process
@@ -222,11 +217,17 @@ int do_command(char **args, int block,
 
 			exec_id = fork();
 			if (exec_id == 0) {
+        printf("before execvp\n");
+        // problem is probably here
 				execvp(prePipeArgs[0], prePipeArgs);
+        printf("after execvp\n");
+
 				exit(0);
 			}
 			else {
+        printf("starting to wait\n");
 				waitpid(exec_id, &exec_status, 0);
+        printf("done waiting\n");
 				write(fd1[1], FILENAME, size);
 				close(fd1[1]);
 				exit(0);
