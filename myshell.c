@@ -14,6 +14,7 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <stdlib.h>
+
 #define FILENAME "files"
 
 extern char **getaline();
@@ -22,8 +23,8 @@ void getPrePipeArgs(char **args, char **prePipeArgs);
 void getPostPipeArgs(char **args, char **postPipeArgs);
 int do_command(char **args, int block,
                int input, char *input_filename,
-               int output, char *output_filename, 
-			   int inputPipeBool);
+               int output, char *output_filename,
+			         int inputPipeBool );
 int ampersand(char **args);
 int semiColon(char **args);
 int getPipe(char **args);
@@ -82,8 +83,8 @@ main() {
 		// if there is an ampersand, block = false
 		// if there is not an ampersand, block = true
 		block = (ampersand(args) == 0);
-		
-		// Check for parentheses		
+
+		// Check for parentheses
 		paren = (parentheses(args) == 1);
 
 		// Check for redirected input
@@ -131,18 +132,42 @@ int do_command(char **args, int block,
 	pid_t child_id;
 	int status;
 	int fd1[2];
-	
-	char **prePipeArgs; 
-	char **postPipeArgs;
-	
-	
+
+  char *prePipeArgs;
+  char *postPipeArgs;
+
+  // og pre and post args
+  // char **prePipeArgs;
+  // char **postPipeArgs;
+
+  int i = 0;
+  printf("args ====== %s\n", &args);
+
+
+
+
 	// We have pipe
 	int pipeInArgs = getPipe(args);
-	
+
 	// Get pipe info
 	if (pipeInArgs) {
-		getPrePipeArgs(args, prePipeArgs);
-		getPostPipeArgs(args, postPipeArgs);
+
+    // this is what i'm trying rather than doing the separate methods
+    // i truly think args is our problem and i have no idea how to solve it
+
+    char *separator = "|";
+    prePipeArgs = strtok(*args, separator);
+    printf("%s\n", prePipeArgs);
+    postPipeArgs = strtok(NULL, "");
+    printf("%s\n", postPipeArgs);
+
+    // // og method calls
+    //
+    // getPrePipeArgs(args, prePipeArgs);
+    // getPostPipeArgs(args, postPipeArgs);
+
+
+
 	}
 
 	// Fork the child process
@@ -158,33 +183,33 @@ int do_command(char **args, int block,
 
 	// Runs first
 	if(child_id == 0) {
-		
+
 		// This call of do_command has input from a previous pipe
 		if (inputPipeBool) {
 			// Take input from the file instead of stdin
 			dup2(FILENAME, stdin);
 		}
-		
+
 		// We have to pipe to another process
 		if (pipeInArgs) {
-			
+
 			// We have to open the file and read to the end to get the size
 			FILE *fp = fopen(FILENAME, "r");
 			int size;
-			
+
 			if (fp) {
 				// Get size of file
 				fseek(fp, 0, SEEK_END);
 				int size = ftell(fp);
 				close(fp);
 			}
-			
+
 			// Here we make another thread
 			// Child - Execute our process
 			// Parent - Wait for process to finish and return 0 so parent process can continue
 			pid_t exec_id;
 			int exec_status;
-			
+
 			exec_id = fork();
 			if (exec_id == 0) {
 				execvp(prePipeArgs[0], prePipeArgs);
@@ -194,11 +219,11 @@ int do_command(char **args, int block,
 				waitpid(exec_id, &exec_status, 0);
 				write(fd1[1], FILENAME, size);
 				close(fd1[1]);
-				exit(0);	
+				exit(0);
 			}
-			
+
 		} else {
-			
+
 			// Set up redirection in the child process
 			if (input) {
 				freopen(input_filename, "r", stdin);
@@ -209,7 +234,7 @@ int do_command(char **args, int block,
 			if (output == 2) {
 				freopen(output_filename, "a+", stdout);
 			}
-			
+
 			// Execute the command
 			// Execute the command
 			execvp(args[0], args);
@@ -224,22 +249,22 @@ int do_command(char **args, int block,
 			waitpid(child_id, &status, 0);
 			FILE *fp = fopen(FILENAME, "r");
 			int size;
-			
+
 			if (fp) {
 				// Get size of file
 				fseek(fp, 0, SEEK_END);
-				size = ftell(fp);	
+				size = ftell(fp);
 				fclose(fp);
 			}
-			
+
 			read(fd1[0], FILENAME, size);
-			do_command(postPipeArgs, block, 
+			do_command(postPipeArgs, block,
 						input, input_filename,
 						output, output_filename, 1);
 		} else {
 			// Wait for the child process to complete, if necessary
 			// block is true if there is no '&'
-			
+
 			if (block) {
 				waitpid(child_id, &status, 0);
 			} else {
@@ -257,11 +282,10 @@ int do_command(char **args, int block,
  */
 void getPrePipeArgs(char **args, char **prePipeArgs) {
 	int i = 0;
-	
-	while(!strcmp(args[i], "|")) {
-		i = i+1;
-	}
-	memcpy(prePipeArgs, args, (i)*sizeof(char*));
+
+	char *token = strtok(*args, "|");
+  // printf("%s\n", token);
+  prePipeArgs = token;
 }
 
 /**
@@ -276,7 +300,7 @@ void getPostPipeArgs(char **args, char **postPipeArgs) {
 	while (args[j] != NULL) {
 		j = j+1;
 	}
-	memcpy(postPipeArgs, args + i+2, (j-i)*sizeof(char*)); 
+	memcpy(postPipeArgs, args + i+2, (j-i)*sizeof(char*));
 }
 
 /*
@@ -426,7 +450,7 @@ int redirect_output(char **args, char **output_filename) {
 			} else {
 				return -1;
 			}
-			
+
 			// Adjust the rest of the arguments in the array
 			for(j = i; args[j-1] != NULL; j++) {
 				args[j] = args[j+2];
