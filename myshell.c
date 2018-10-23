@@ -1,12 +1,3 @@
-/*
- * This code implements a simple shell program
- * It supports the internal shell command "exit",
- * backgrounding processes with "&", input redirection
- * with "<" and output redirection with ">".
- * However, this is not complete.
- * order of opps: paren, background, left to right
- */
-
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/types.h>
@@ -15,9 +6,7 @@
 #include <sys/wait.h>
 #include <stdlib.h>
 #include <string.h>
-#include<fcntl.h>
-
-#define FILENAME "files"
+#include <fcntl.h>
 
 extern char **getaline();
 
@@ -26,7 +15,7 @@ void getPostPipeArgs(char **args, char **postPipeArgs);
 int do_command(char **args, int block,
                int input, char *input_filename,
                int output, char *output_filename,
-			         int inputPipeBool );
+			   int inputPipeBool, char *pipe_input_file);
 int ampersand(char **args);
 int semiColon(char **args);
 int getPipe(char **args);
@@ -35,11 +24,6 @@ int internal_command(char **args);
 int redirect_input(char **args, char **input_filename);
 int redirect_output(char **args, char **output_filename);
 
-/*
- * Handle exit signals from child processes
-   https://www.thegeekstuff.com/2012/03/catch-signals-sample-c-code
-   ^^^ refer to this when trying to do signals
- */
 void sig_handler(int signal) {
         int status;
         int result = wait(&status);
@@ -73,12 +57,6 @@ main() {
 		printf("->");
 		args = getaline();
 
-		// int j = 0;
-		// while (args[j] != NULL) {
-		//   printf("%s\n", args[j]);
-		//   j++;
-		// }
-
 		// No input, continue
 		if(args[0] == NULL)
 			continue;
@@ -91,9 +69,6 @@ main() {
 		// if there is an ampersand, block = false
 		// if there is not an ampersand, block = true
 		block = (ampersand(args) == 0);
-
-		// Check for parentheses
-		paren = (parentheses(args) == 1);
 
 		// Check for redirected input
 		input = redirect_input(args, &input_filename);
@@ -123,51 +98,53 @@ main() {
 			break;
 		}
 
-		// Do the command
 		do_command(args, block,
 				   input, input_filename,
-				   output, output_filename, 0);
+				   output, output_filename, 0, "file1");
 	}
 }
 
 /*
  * Do the command
+ * args - The list of args to execute
+ * block - Whetether or not we are backgrounding the process
+ * input - If there is input in the command
+ * input_filename - Where we are getting the input from
+ * output - If there is output in the command
+ * output_filename - Where we are sending the output to
+ * inputPipeBool - If this call of do_command has pipe input
+ * pipe_input_file - Input from the pipe is in this file
  */
 int do_command(char **args, int block,
                int input, char *input_filename,
-               int output, char *output_filename, int inputPipeBool) {
+               int output, char *output_filename, 
+			   int inputPipeBool, char *pipe_input_file) {
 
 	pid_t child_id;
 	int status;
-	int fd1[2];
 
-	char *prePipeArgs = malloc(100 *sizeof(char*));
-	char *postPipeArgs = malloc(100 *sizeof(char*));
+	char **prePipeArgs = malloc(1000 *sizeof(char*));
+	char **postPipeArgs = malloc(1000 *sizeof(char*));
+	
+	char *pipe_output_file;
 
-	// We have pipe
 	int pipeInArgs = getPipe(args);
+	
 
-	// Get pipe info
+	// Get pipe info and split args into prePipeArgs and postPipeArgs
 	if (pipeInArgs) {
-
-		// this is what i'm trying rather than doing the separate methods
-		// i truly think args is our problem and i have no idea how to solve it
-
-		char *separator = "|";
-		prePipeArgs = strtok(*args, separator);
-		int j = 2;
-
-		while (args[j] != NULL){
-		  postPipeArgs = strcat(postPipeArgs, args[j]);
-		  postPipeArgs = strcat(postPipeArgs, " ");
-		  j++;
+		
+		int pipeIndex = getPipeIndex(args);
+		int i = 0;
+		for (i; i < pipeIndex; i++) {
+			prePipeArgs[i] = args[i];
+		}
+		int j = 0;
+		for (i = pipeIndex+1; args[i] != NULL; i++) {
+			postPipeArgs[j] = args[i];
+			j++;
 		}
 	}
-
-	  //printf("first argument: %s\n", prePipeArgs);
-	  //printf("other arguments: %s\n", postPipeArgs);
-
-
 
 	// Fork the child process
 	child_id = fork();
@@ -181,50 +158,34 @@ int do_command(char **args, int block,
 	}
 
 	// Runs first
-	if(child_id == 0) {
-		int file_desc;
+	if(child_id == 0 || (inputPipeBool && (getpid() % 2 == 0))) {
 		// This call of do_command has input from a previous pipe
 		if (inputPipeBool) {
 			// Take input from the file instead of stdin
-			file_desc = open(FILENAME, O_WRONLY | O_APPEND);
-			dup2(file_desc, stdin);
+			int input_file_desc;
+			input_file_desc = open(*pipe_input_file, O_RDONLY);
+			dup2(input_file_desc, stdin);
 		}
 
 		// We have to pipe to another process
 		if (pipeInArgs) {
+			printf("%s\n", args[0]);
+			// We have two files, if we receive input from one, we write to the other
+			if (strcmp(*pipe_input_file, "file1")) {
+				pipe_output_file = "file2";
+			} else {
+				pipe_output_file = "file1";
+			}
 			
-			//dup2(FILENAME, stdout);
-
-			// We have to open the file and read to the end to get the size
-			FILE *fp = fopen(FILENAME, "r");
-			int size;
-
-			if (fp) {
-				// Get size of file
-				fseek(fp, 0, SEEK_END);
-				size = ftell(fp);
-				fclose(fp);
-			}
-
-			// Here we make another thread
-			// Child - Execute our process
-			// Parent - Wait for process to finish and return 0 so parent process can continue
-			pid_t exec_id;
-			int exec_status;
-
-			exec_id = fork();
-			if (exec_id != 0) {
-				execvp(prePipeArgs[0], prePipeArgs);
-			}
-			else {
-				waitpid(exec_id, &exec_status, 0);
-				write(fd1[1], FILENAME, size);
-				close(fd1[1]);
-				exit(0);
-			}
-
+			// Set output to go to the file and not to stdout
+			int output_file_desc;
+			output_file_desc = open(*pipe_output_file, O_WRONLY);
+			dup2(output_file_desc, stdout);
+			execvp(prePipeArgs[0], prePipeArgs);
+		
+		// No pipe
 		} else {
-
+			printf("%s\n", args[0]);
 			// Set up redirection in the child process
 			if (input) {
 				freopen(input_filename, "r", stdin);
@@ -238,31 +199,18 @@ int do_command(char **args, int block,
 
 			// Execute the command
 			execvp(args[0], args);
-			
-			// Will this ever run?
-			fclose (stdout);
-			fclose(stdin);
-			exit(0);
-			//
 		}
+		
 	// Runs second
 	} else {
 		// Wait for input from child
 		if (pipeInArgs) {
 			waitpid(child_id, &status, 0);
-			FILE *fp = fopen(FILENAME, "r");
-			int size;
-
-			if (fp) {
-				// Get size of file
-				fseek(fp, 0, SEEK_END);
-				size = ftell(fp);
-				fclose(fp);
-			}
-			read(fd1[0], FILENAME, size);
+			
+			// Execute the command with the input from prePipeArgs
 			do_command(postPipeArgs, block,
 						input, input_filename,
-						output, output_filename, 1);
+						output, output_filename, 1, pipe_output_file);
 		} else {
 			// Wait for the child process to complete, if necessary
 			// block is true if there is no '&'
@@ -279,34 +227,9 @@ int do_command(char **args, int block,
 	}
 }
 
-/**
- * Check here for errors
- */
-void getPrePipeArgs(char **args, char **prePipeArgs) {
-	int i = 0;
-
-	char *token = strtok(*args, "|");
-  // printf("%s\n", token);
-  prePipeArgs = token;
-}
-
-/**
- * Check here for errors
- */
-void getPostPipeArgs(char **args, char **postPipeArgs) {
-	int i, j;
-	while(!strcmp(args[i], "|")) {
-		i = i+1;
-	}
-	j = i;
-	while (args[j] != NULL) {
-		j = j+1;
-	}
-	memcpy(postPipeArgs, args + i+2, (j-i)*sizeof(char*));
-}
-
 /*
  * Check for ampersand as the last argument
+ * args - Argument array to check
  */
 int ampersand(char **args) {
 	int i;
@@ -326,20 +249,23 @@ int ampersand(char **args) {
 
 /*
  * Checks for a pipe
+ * args - Argument array to check
  */
 int getPipe(char **args) {
-	int i = 0;
-	while (args[i] != NULL) {
-		if (args[i][0] == '|'){
+	int i;
+
+	for(i = 1; args[i] != NULL; i++) {
+
+		if(args[i][0] == '|') {
 			return 1;
 		}
-		i = i+1;
 	}
 	return 0;
 }
 
 /**
  * Checks for a valid set of parentheses
+ * args Argument array to check
  * -1 - Invalid set of parentheses
  * 0 - No parentheses
  * 1 - Valid set of parentheses
@@ -372,6 +298,7 @@ int parentheses(char **args) {
 /*
  * Check for internal commands
  * Returns true if there is more to do, false otherwise
+ * args - Argument array to check
  */
 int internal_command(char **args) {
 	if(strcmp(args[0], "exit") == 0) {
@@ -382,6 +309,8 @@ int internal_command(char **args) {
 
 /*
  * Check for input redirection
+ * args - Argument array to check
+ * input_filename - Where we would get input from, if input is true
  */
 int redirect_input(char **args, char **input_filename) {
 	int i;
@@ -411,8 +340,26 @@ int redirect_input(char **args, char **input_filename) {
 	return 0;
 }
 
+/**
+ * Gets the index of the pipe
+ * args Array of arguments to parse
+ */
+int getPipeIndex(char **args) {
+	int i;
+
+	for(i = 0; args[i] != NULL; i++) {
+
+		if(args[i][0] == '|') {
+			return i;
+		}
+	}
+	return -1;
+}
+
 /*
  * Check for output redirection
+ * args - Array of arguments to check
+ * output_filename Where the output would go, if output is true
  */
 int redirect_output(char **args, char **output_filename) {
 	int i;

@@ -21,7 +21,9 @@ Working Shell Commands:
 6. A command, with or without arguments, whose input is redirected from a file
 
 
-Unimplemented Shell commands
+Unimplemented Shell Commands:
 
-7. A command, with or without arguments, executed in the background using &
-8. A command, with or without arguments, whose output is piped to the input of another command
+1.. A command, with or without arguments, executed in the background using &
+
+Mostly Complete Shell Commands:
+1. A command, with or without arguments, whose output is piped to the input of another command

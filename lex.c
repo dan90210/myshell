@@ -1,6 +1,6 @@
 %{
-int _numargs = 10;
-char *_args[10];
+int _numargs = 100;
+char *_args[100];
 int _argcount = 0;
 %}
 
