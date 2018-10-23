@@ -15,6 +15,7 @@
 #include <sys/wait.h>
 #include <stdlib.h>
 #include <string.h>
+#include<fcntl.h>
 
 #define FILENAME "files"
 
@@ -72,11 +73,11 @@ main() {
 		printf("->");
 		args = getaline();
 
-    // int j = 0;
-    // while (args[j] != NULL) {
-    //   printf("%s\n", args[j]);
-    //   j++;
-    // }
+		// int j = 0;
+		// while (args[j] != NULL) {
+		//   printf("%s\n", args[j]);
+		//   j++;
+		// }
 
 		// No input, continue
 		if(args[0] == NULL)
@@ -140,8 +141,8 @@ int do_command(char **args, int block,
 	int status;
 	int fd1[2];
 
-  char *prePipeArgs = malloc(100 *sizeof(char*));
-  char *postPipeArgs = malloc(100 *sizeof(char*));
+	char *prePipeArgs = malloc(100 *sizeof(char*));
+	char *postPipeArgs = malloc(100 *sizeof(char*));
 
 	// We have pipe
 	int pipeInArgs = getPipe(args);
@@ -149,31 +150,27 @@ int do_command(char **args, int block,
 	// Get pipe info
 	if (pipeInArgs) {
 
-    // this is what i'm trying rather than doing the separate methods
-    // i truly think args is our problem and i have no idea how to solve it
+		// this is what i'm trying rather than doing the separate methods
+		// i truly think args is our problem and i have no idea how to solve it
 
-    char *separator = "|";
-    prePipeArgs = strtok(*args, separator);
-    int j = 2;
+		char *separator = "|";
+		prePipeArgs = strtok(*args, separator);
+		int j = 2;
 
-    while (args[j] != NULL){
-      postPipeArgs = strcat(postPipeArgs, args[j]);
-      postPipeArgs = strcat(postPipeArgs, " ");
-      j++;
-    }
-
-
-
+		while (args[j] != NULL){
+		  postPipeArgs = strcat(postPipeArgs, args[j]);
+		  postPipeArgs = strcat(postPipeArgs, " ");
+		  j++;
+		}
 	}
 
-  printf("first argument: %s\n", prePipeArgs);
-  printf("other arguments: %s\n", postPipeArgs);
+	  //printf("first argument: %s\n", prePipeArgs);
+	  //printf("other arguments: %s\n", postPipeArgs);
 
 
 
 	// Fork the child process
 	child_id = fork();
-  printf("forking\n");  // prints twice, but above print statements happen once
 
 	// Check for errors in fork()
 	switch(child_id) {
@@ -185,18 +182,18 @@ int do_command(char **args, int block,
 
 	// Runs first
 	if(child_id == 0) {
-
-    printf("my child id is 0\n");
-
+		int file_desc;
 		// This call of do_command has input from a previous pipe
 		if (inputPipeBool) {
 			// Take input from the file instead of stdin
-			dup2(FILENAME, stdin);
-      printf("duuped\n");
+			file_desc = open(FILENAME, O_WRONLY | O_APPEND);
+			dup2(file_desc, stdin);
 		}
 
 		// We have to pipe to another process
 		if (pipeInArgs) {
+			
+			//dup2(FILENAME, stdout);
 
 			// We have to open the file and read to the end to get the size
 			FILE *fp = fopen(FILENAME, "r");
@@ -205,8 +202,8 @@ int do_command(char **args, int block,
 			if (fp) {
 				// Get size of file
 				fseek(fp, 0, SEEK_END);
-				int size = ftell(fp);
-				close(fp);
+				size = ftell(fp);
+				fclose(fp);
 			}
 
 			// Here we make another thread
@@ -216,18 +213,11 @@ int do_command(char **args, int block,
 			int exec_status;
 
 			exec_id = fork();
-			if (exec_id == 0) {
-        printf("before execvp\n");
-        // problem is probably here
+			if (exec_id != 0) {
 				execvp(prePipeArgs[0], prePipeArgs);
-        printf("after execvp\n");
-
-				exit(0);
 			}
 			else {
-        printf("starting to wait\n");
 				waitpid(exec_id, &exec_status, 0);
-        printf("done waiting\n");
 				write(fd1[1], FILENAME, size);
 				close(fd1[1]);
 				exit(0);
@@ -247,11 +237,13 @@ int do_command(char **args, int block,
 			}
 
 			// Execute the command
-			// Execute the command
 			execvp(args[0], args);
+			
+			// Will this ever run?
 			fclose (stdout);
 			fclose(stdin);
 			exit(0);
+			//
 		}
 	// Runs second
 	} else {
@@ -267,7 +259,6 @@ int do_command(char **args, int block,
 				size = ftell(fp);
 				fclose(fp);
 			}
-
 			read(fd1[0], FILENAME, size);
 			do_command(postPipeArgs, block,
 						input, input_filename,
